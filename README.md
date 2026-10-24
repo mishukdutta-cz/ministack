@@ -516,6 +516,7 @@ subnet = ec2.create_subnet(
 | `AWS::Glue::Crawler` | Crawler name | — |
 | `AWS::Glue::Job` | Job name | — |
 | `AWS::Glue::Trigger` | Trigger name | — |
+| `AWS::Athena::WorkGroup` | WorkGroup name | CreationTime |
 | `AWS::Lambda::Permission` | Statement ID | — |
 | `AWS::Lambda::Version` | Version ARN | Version |
 | `AWS::Lambda::Alias` | Alias ARN | — |

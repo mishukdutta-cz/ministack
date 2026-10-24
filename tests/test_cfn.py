@@ -36317,6 +36317,97 @@ def test_cfn_glue_change_set_recreation(rtype, old, new, expected):
 
 
 # ===========================================================================
+# AWS::Athena::WorkGroup
+# ===========================================================================
+
+def _athena_workgroup_template(props):
+    return {
+        "Resources": {"Wg": {"Type": "AWS::Athena::WorkGroup", "Properties": props}},
+        "Outputs": {
+            "Name": {"Value": {"Ref": "Wg"}},
+            "Created": {"Value": {"Fn::GetAtt": ["Wg", "CreationTime"]}},
+        },
+    }
+
+
+def _athena_wg_missing(athena, name):
+    with pytest.raises(ClientError) as exc:
+        athena.get_work_group(WorkGroup=name)
+    assert exc.value.response["Error"]["Code"] == "InvalidRequestException"
+
+
+def test_cfn_athena_workgroup_create_update_delete(cfn, athena, sts):
+    s = _uuid_mod.uuid4().hex[:8]
+    stack, name = f"athena-wg-{s}", f"wg-{s}"
+    props = {
+        "Name": name,
+        "Description": "first",
+        "State": "ENABLED",
+        "Tags": [{"Key": "team", "Value": "data"}],
+        "WorkGroupConfiguration": {
+            "EnforceWorkGroupConfiguration": True,
+            "ResultConfiguration": {"OutputLocation": f"s3://bucket-{s}/athena-results/"},
+        },
+    }
+    _glue_create(cfn, stack, _athena_workgroup_template(props))
+    try:
+        out = _glue_outputs(cfn, stack)
+        assert out["Name"] == name
+        wg = athena.get_work_group(WorkGroup=name)["WorkGroup"]
+        assert out["Created"] == str(int(wg["CreationTime"].timestamp()))
+        assert wg["Description"] == "first"
+        assert wg["State"] == "ENABLED"
+        assert wg["Configuration"]["EnforceWorkGroupConfiguration"] is True
+        assert wg["Configuration"]["ResultConfiguration"]["OutputLocation"] == f"s3://bucket-{s}/athena-results/"
+        account = sts.get_caller_identity()["Account"]
+        arn = f"arn:aws:athena:us-east-1:{account}:workgroup/{name}"
+        assert athena.list_tags_for_resource(ResourceARN=arn)["Tags"] == [{"Key": "team", "Value": "data"}]
+
+        # Other properties update in place.
+        props.update(Description="second", State="DISABLED", Tags=[],
+                     WorkGroupConfiguration={"ResultConfiguration": {"OutputLocation": f"s3://bucket-{s}/v2/"}})
+        _glue_update(cfn, stack, _athena_workgroup_template(props))
+        assert _glue_outputs(cfn, stack)["Created"] == out["Created"]
+        wg = athena.get_work_group(WorkGroup=name)["WorkGroup"]
+        assert wg["Description"] == "second"
+        assert wg["State"] == "DISABLED"
+        assert wg["Configuration"] == {"ResultConfiguration": {"OutputLocation": f"s3://bucket-{s}/v2/"}}
+        assert athena.list_tags_for_resource(ResourceARN=arn)["Tags"] == []
+
+        # A new Name replaces the workgroup.
+        props["Name"] = f"wg2-{s}"
+        _glue_update(cfn, stack, _athena_workgroup_template(props))
+        assert _glue_outputs(cfn, stack)["Name"] == f"wg2-{s}"
+        _athena_wg_missing(athena, name)
+        assert athena.get_work_group(WorkGroup=f"wg2-{s}")["WorkGroup"]["State"] == "DISABLED"
+    finally:
+        _delete_cfn_test_stack(cfn, stack)
+    _athena_wg_missing(athena, f"wg2-{s}")
+
+
+def test_cfn_athena_workgroup_created_disabled(cfn, athena):
+    s = _uuid_mod.uuid4().hex[:8]
+    stack, name = f"athena-wg-off-{s}", f"wg-off-{s}"
+    _glue_create(cfn, stack, _athena_workgroup_template({"Name": name, "State": "DISABLED"}))
+    try:
+        assert athena.get_work_group(WorkGroup=name)["WorkGroup"]["State"] == "DISABLED"
+    finally:
+        _delete_cfn_test_stack(cfn, stack)
+
+
+def test_cfn_athena_workgroup_requires_name(cfn):
+    stack = f"athena-wg-noname-{_uuid_mod.uuid4().hex[:8]}"
+    cfn.create_stack(StackName=stack, TemplateBody=json.dumps(_athena_workgroup_template({"Description": "x"})))
+    try:
+        _wait_stack(cfn, stack)
+        events = cfn.describe_stack_events(StackName=stack)["StackEvents"]
+        reasons = [e.get("ResourceStatusReason", "") for e in events if e["LogicalResourceId"] == "Wg"]
+        assert any("required key [Name] not found" in r for r in reasons), reasons
+    finally:
+        _delete_cfn_test_stack(cfn, stack)
+
+
+# ===========================================================================
 # AWS::ElastiCache::* resource types
 # ===========================================================================
 

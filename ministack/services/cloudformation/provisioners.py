@@ -25,6 +25,7 @@ import ministack.services.apigateway as _apigw_v2
 import ministack.services.apigateway_v1 as _apigw_v1
 import ministack.services.appconfig as _appconfig
 import ministack.services.appsync as _appsync
+import ministack.services.athena as _athena
 import ministack.services.autoscaling as _asg
 import ministack.services.backup as _backup
 import ministack.services.cloudfront as _cf
@@ -13830,6 +13831,57 @@ def _glue_trigger_delete(physical_id, props):
     _glue._delete_trigger({"Name": physical_id})
 
 
+# --- Athena WorkGroup ---
+# CreateWorkGroup has no State, so a DISABLED workgroup is disabled after the create.
+
+def _athena_call(fn, data, action):
+    status, _headers, body = fn(data)
+    if status >= 400:
+        raise ValueError(f"AWS::Athena::WorkGroup {action} failed: {body!r}")
+
+
+def _athena_workgroup_create(logical_id, props, stack_name):
+    name = props.get("Name")
+    if not name:
+        raise ValueError(f"Properties validation failed for resource {logical_id} with message: "
+                         "[#: required key [Name] not found]")
+    _athena_call(_athena._create_workgroup, {
+        "Name": name,
+        "Description": props.get("Description", ""),
+        "Configuration": props.get("WorkGroupConfiguration", {}),
+        "Tags": [{"Key": k, "Value": v} for k, v in _tag_map(props.get("Tags")).items()],
+    }, "create")
+    if props.get("State", "ENABLED") != "ENABLED":
+        _athena_call(_athena._update_workgroup, {"WorkGroup": name, "State": props["State"]}, "create")
+    return name, {"CreationTime": _athena._workgroups[name]["CreationTime"]}
+
+
+def _athena_workgroup_update(physical_id, old_props, new_props, stack_name, logical_id=None):
+    name = new_props.get("Name")
+    replaced = _rename_replacement(
+        physical_id, old_props, new_props, stack_name, logical_id, name,
+        physical_id if physical_id in _athena._workgroups else None,
+        _athena_workgroup_create, _athena_workgroup_delete)
+    if replaced:
+        return replaced
+    wg = _athena._workgroups[name]
+    wg["Description"] = new_props.get("Description", "")
+    wg["State"] = new_props.get("State", "ENABLED")
+    # The template has the full configuration, so it replaces the stored one
+    wg["Configuration"] = new_props.get("WorkGroupConfiguration", {})
+    arn = _athena._arn_workgroup(name)
+    tags = _tag_map(new_props.get("Tags"))
+    if tags:
+        _athena._tags[arn] = tags
+    else:
+        _athena._tags.pop(arn, None)
+    return name, {"CreationTime": wg["CreationTime"]}
+
+
+def _athena_workgroup_delete(physical_id, props):
+    _athena._delete_workgroup({"WorkGroup": physical_id})
+
+
 # --- IoT Thing, Certificate and the principal attachments ---
 # Each calls the IoT control-plane handler the matching API call reaches. The
 # delete handlers follow the CloudFormation resource handlers: a certificate
@@ -15033,6 +15085,7 @@ _REPLACING_PROPERTIES: dict[str, tuple[str, ...]] = {
     "AWS::Glue::Crawler": ("Name",),
     "AWS::Glue::Job": ("Name",),
     "AWS::Glue::Trigger": ("Name", "WorkflowName", "Type"),
+    "AWS::Athena::WorkGroup": ("Name",),
     "AWS::ApiGatewayV2::DomainName": ("DomainName",),
     "AWS::ApiGatewayV2::ApiMapping": ("DomainName",),
     "AWS::EFS::FileSystem": ("AvailabilityZoneName", "Encrypted", "KmsKeyId", "PerformanceMode"),
@@ -15186,6 +15239,12 @@ _RESOURCE_HANDLERS = {
         "update": _glue_trigger_update,
         "update_with_logical_id": True,
         "delete": _glue_trigger_delete,
+    },
+    "AWS::Athena::WorkGroup": {
+        "create": _athena_workgroup_create,
+        "update": _athena_workgroup_update,
+        "update_with_logical_id": True,
+        "delete": _athena_workgroup_delete,
     },
     "AWS::S3Tables::TableBucket": {
         "create": _s3tables_bucket_create,

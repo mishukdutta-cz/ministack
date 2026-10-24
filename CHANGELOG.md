@@ -7,6 +7,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **CloudFormation — `AWS::Athena::WorkGroup`** — a stack can now create, update and delete an Athena workgroup. Before, the template failed with `Unrecognized resource types: [AWS::Athena::WorkGroup]`. `Ref` returns the workgroup name and `Fn::GetAtt` supports `CreationTime`. A change to `Name` replaces the workgroup; other changes update it in place.
+
 ## [1.5.32] — 2026-10-23
 
 ### Added
