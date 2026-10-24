@@ -7,6 +7,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- **Step Functions — `glue:startJobRun` optimized integration** — `arn:aws:states:::glue:startJobRun` failed with "not yet implemented"; it now starts the job run and returns its `JobName` and `JobRunId`. With `.sync` the task waits for the run to end: a `SUCCEEDED` run returns the job run, and a `FAILED`, `ERROR`, `TIMEOUT` or `STOPPED` run fails the task with `States.TaskFailed` and the job run as the cause.
+
 ## [1.5.32] — 2026-10-23
 
 ### Added
