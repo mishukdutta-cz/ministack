@@ -3516,9 +3516,10 @@ def _sfn_glue_job(s3, glue, script):
     """A pythonshell Glue job that runs `script` from S3. MiniStack runs it as a local Python subprocess."""
     name = f"sfn-glue-{_uuid_mod.uuid4().hex[:8]}"
     s3.create_bucket(Bucket=name)
-    s3.put_object(Bucket=name, Key="job.py", Body=script.encode())
+    # A unique key, because MiniStack copies each script to a temp file named after the key.
+    s3.put_object(Bucket=name, Key=f"{name}.py", Body=script.encode())
     glue.create_job(Name=name, Role="arn:aws:iam::000000000000:role/R",
-                    Command={"Name": "pythonshell", "ScriptLocation": f"s3://{name}/job.py"})
+                    Command={"Name": "pythonshell", "ScriptLocation": f"s3://{name}/{name}.py"})
     return name
 
 
@@ -3553,6 +3554,8 @@ def test_sfn_glue_start_job_run_sync_waits_for_the_run(sfn, s3, glue, query_lang
     assert desc["status"] == "SUCCEEDED", desc.get("cause")
     output = json.loads(desc["output"])
     assert (output["JobName"], output["JobRunState"]) == (job, "SUCCEEDED")
+    # Epoch milliseconds, as AWS gives them.
+    assert isinstance(output["StartedOn"], int)
 
 
 def test_sfn_glue_start_job_run_sync_failed_run_fails_the_task(sfn, s3, glue):

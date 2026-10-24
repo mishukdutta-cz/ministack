@@ -4020,9 +4020,14 @@ def _invoke_glue_start_job_run(resource, input_data):
 def _poll_glue_job_run(job_name, run_id):
     """Poll GetJobRun until the run ends. A run that does not succeed fails the task."""
     while True:
-        _scaled_sleep(1)
+        # Not scaled: SFN_WAIT_SCALE=0 would turn the poll into a busy loop.
+        time.sleep(1)
         job_run = _dispatch_aws_sdk_json(
             _AWS_SDK_SERVICE_MAP["glue"], "glue", "getJobRun", {"JobName": job_name, "RunId": run_id})["JobRun"]
+        # The optimized integration gives timestamps as epoch milliseconds, not the aws-sdk ISO strings.
+        for field in ("StartedOn", "LastModifiedOn", "CompletedOn"):
+            if field in job_run:
+                job_run[field] = int(datetime.fromisoformat(job_run[field].replace("Z", "+00:00")).timestamp() * 1000)
         if job_run["JobRunState"] == "SUCCEEDED":
             return job_run
         if job_run["JobRunState"] in ("FAILED", "ERROR", "TIMEOUT", "STOPPED"):
