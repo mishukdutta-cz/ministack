@@ -22,7 +22,7 @@ jobs:
   build:
     # Stops a run (or a re-run) that another user starts.
     if: github.triggering_actor == github.repository_owner
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
